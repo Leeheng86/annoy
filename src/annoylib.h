@@ -39,6 +39,7 @@
 #include <algorithm>
 #include <queue>
 #include <limits>
+#include <unordered_map>
 
 // This allows others to supply their own logger / error printer without
 // requiring Annoy to import their headers. See RcppAnnoy for a use case.
@@ -59,6 +60,7 @@ using std::string;
 using std::pair;
 using std::numeric_limits;
 using std::make_pair;
+using std::unordered_map;
 
 struct RandRandom {
   // Default implementation of annoy-specific random number generator that uses rand() from standard library.
@@ -283,12 +285,18 @@ protected:
   bool _loaded;
   bool _verbose;
   int _fd;
+
+  unordered_map<S,S> _omap;
+  unordered_map<S,S> _imap;
+  S _cs;
 public:
 
   AnnoyIndex(int f) : _random() {
     _f = f;
     _s = offsetof(Node, v) + f * sizeof(T); // Size of each node
     _verbose = false;
+    _cs = 0;
+
     _K = (_s - offsetof(Node, children)) / sizeof(S); // Max number of descendants to fit into node
     reinitialize(); // Reset everything
   }
@@ -297,8 +305,13 @@ public:
   }
 
   void add_item(S item, const T* w) {
-    _allocate_size(item + 1);
-    Node* n = _get(item);
+    _omap[item] = _cs;
+    _imap[_cs] = item;
+    _cs++;
+    _allocate_size(_cs);
+    Node* n = _get(_omap[item]);
+    //_allocate_size(item + 1);
+    //Node* n = _get(item);
 
     n->children[0] = 0;
     n->children[1] = 0;
@@ -307,8 +320,8 @@ public:
     for (int z = 0; z < _f; z++)
       n->v[z] = w[z];
 
-    if (item >= _n_items)
-      _n_items = item + 1;
+    if (_omap[item] >= _n_items)
+      _n_items = _omap[item] + 1;
   }
 
   void build(int q) {
@@ -361,6 +374,8 @@ public:
     _n_nodes = 0;
     _nodes_size = 0;
     _roots.clear();
+    _cs = 0;
+    _omap.clear();
   }
 
   void unload() {
@@ -419,7 +434,7 @@ public:
   }
 
   void get_nns_by_item(S item, size_t n, size_t search_k, vector<S>* result, vector<T>* distances) {
-    const Node* m = _get(item);
+    const Node* m = _get(_omap[item]);
     _get_all_nns(m->v, n, search_k, result, distances);
   }
 
@@ -434,7 +449,7 @@ public:
   }
 
   void get_item(S item, T* v) {
-    Node* m = _get(item);
+    Node* m = _get(_omap[item]);
     std::copy(&m->v[0], &m->v[_f], v);
   }
 
@@ -574,7 +589,7 @@ protected:
     for (size_t i = 0; i < p; i++) {
       if (distances)
         distances->push_back(D::normalized_distance(nns_dist[i].first));
-      result->push_back(nns_dist[i].second);
+      result->push_back(_imap[nns_dist[i].second]);
     }
   }
 };
